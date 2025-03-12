@@ -12,10 +12,10 @@ const TEMPLATE_CONFIG = {
 
   // Position and size of the user's image on the template
   userImagePosition: {
-    top: "32%", // vertical position from the top (as percentage)
+    top: "39%", // vertical position from the top (as percentage)
     left: "50%", // horizontal position from the left (as percentage)
-    width: "36%", // width of the user image (as percentage)
-    height: "27%", // height of the user image (as percentage)
+    width: "54%", // width of the user image (as percentage)
+    height: "39.3%", // height of the user image (as percentage)
     shape: "square", // 'circle', 'square', or 'rectangle'
     borderColor: "white", // color of the border around the user image
     borderWidth: 2, // width of the border in pixels
