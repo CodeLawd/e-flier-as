@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, ChangeEvent } from "react";
+import { useState, useRef, type ChangeEvent } from "react";
 import * as htmlToImage from "html-to-image";
 import { saveAs } from "file-saver";
 import Image from "next/image";
@@ -20,6 +20,14 @@ const TEMPLATE_CONFIG = {
     borderColor: "white", // color of the border around the user image
     borderWidth: 2, // width of the border in pixels
   },
+
+  // Mobile optimization settings
+  mobileOptimization: {
+    maxWidth: 1200, // Maximum width for mobile devices in pixels
+    quality: 0.9, // Image quality (0-1)
+    format: "jpeg", // Output format (jpeg or png)
+    fileName: "personal-invitation", // Base filename without extension
+  },
 };
 
 const SimpleImageUpload = () => {
@@ -30,6 +38,13 @@ const SimpleImageUpload = () => {
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Check file size - limit to 5MB as mentioned in UI
+    const maxSizeInBytes = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxSizeInBytes) {
+      alert("File is too large. Please select an image under 5MB.");
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = () => {
@@ -43,12 +58,107 @@ const SimpleImageUpload = () => {
 
     try {
       setIsDownloading(true);
-      const dataUrl = await htmlToImage.toJpeg(inviteRef.current, {
-        quality: 0.95,
-      });
-      saveAs(dataUrl, "e-invite.jpeg");
+
+      // Get current date for unique filename
+      const date = new Date();
+      const dateString = `${date.getFullYear()}${(date.getMonth() + 1)
+        .toString()
+        .padStart(2, "0")}${date.getDate().toString().padStart(2, "0")}`;
+      const fileName = `${TEMPLATE_CONFIG.mobileOptimization.fileName}-${dateString}.${TEMPLATE_CONFIG.mobileOptimization.format}`;
+
+      // Detect iOS devices - needs special handling
+      const isIOS =
+        /iPad|iPhone|iPod/.test(navigator.userAgent) && !("MSStream" in window);
+      const isSafari = /^((?!chrome|android).)*safari/i.test(
+        navigator.userAgent
+      );
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+      // Special settings for iOS
+      const options = {
+        quality: isIOS ? 0.8 : TEMPLATE_CONFIG.mobileOptimization.quality, // Slightly lower quality for iOS to reduce memory usage
+        pixelRatio: isMobile ? (isIOS ? 1.5 : 2) : 1, // Lower pixelRatio for iOS to prevent memory issues
+        width: isMobile
+          ? Math.min(
+              window.innerWidth * (isIOS ? 1.5 : 2),
+              isIOS ? 1000 : TEMPLATE_CONFIG.mobileOptimization.maxWidth
+            )
+          : Math.min(
+              inviteRef.current.offsetWidth,
+              TEMPLATE_CONFIG.mobileOptimization.maxWidth
+            ),
+        style: {
+          background: "white",
+        },
+        // iOS Safari has issues with some advanced options, so keep it simple for iOS
+        skipAutoScale: isIOS,
+        canvasWidth: isIOS
+          ? Math.min(window.innerWidth * 1.5, 1000)
+          : undefined,
+      };
+
+      // Generate the image based on device type
+      let dataUrl;
+
+      // For iOS, use a different approach
+      if (isIOS) {
+        try {
+          // iOS works better with PNG
+          dataUrl = await htmlToImage.toPng(inviteRef.current, options);
+
+          // Create a temporary link element
+          const link = document.createElement("a");
+          link.href = dataUrl;
+
+          // For iOS Safari, we need to use a different approach
+          if (isSafari) {
+            // Open image in new tab for Safari
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            alert(
+              "After clicking OK, your image will open in a new tab. Tap and hold the image, then select 'Add to Photos' to save it."
+            );
+            link.click();
+          } else {
+            // For iOS but non-Safari browsers
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }
+
+          setIsDownloading(false);
+          return;
+        } catch (iosError) {
+          console.error("iOS-specific error:", iosError);
+          // Fall back to regular method if iOS-specific approach fails
+        }
+      }
+
+      // Standard approach for non-iOS devices
+      if (TEMPLATE_CONFIG.mobileOptimization.format === "png") {
+        dataUrl = await htmlToImage.toPng(inviteRef.current, options);
+      } else {
+        dataUrl = await htmlToImage.toJpeg(inviteRef.current, options);
+      }
+
+      // For iOS devices that failed the iOS-specific approach
+      if (isIOS) {
+        const link = document.createElement("a");
+        link.href = dataUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        alert(
+          "After clicking OK, your image will open in a new tab. Tap and hold the image, then select 'Add to Photos' to save it."
+        );
+        link.click();
+      } else {
+        // Save the file using file-saver for non-iOS devices
+        saveAs(dataUrl, fileName);
+      }
     } catch (error) {
       console.error("Error generating invite:", error);
+      alert("There was a problem creating your invitation. Please try again.");
     } finally {
       setIsDownloading(false);
     }
@@ -129,7 +239,7 @@ const SimpleImageUpload = () => {
           >
             {/* Template Background - Using the default template image */}
             <Image
-              src={TEMPLATE_CONFIG.templateImagePath}
+              src={TEMPLATE_CONFIG.templateImagePath || "/placeholder.svg"}
               alt="Template"
               className="absolute inset-0 w-full h-full object-cover"
               width={1000}
@@ -152,7 +262,7 @@ const SimpleImageUpload = () => {
             >
               {userImage ? (
                 <Image
-                  src={userImage}
+                  src={userImage || "/placeholder.svg"}
                   alt="User"
                   className="w-full h-full object-cover"
                   width={1000}
@@ -167,7 +277,7 @@ const SimpleImageUpload = () => {
               )}
             </div>
           </div>
-          <p className="text-sm text-gray-500 text-black mt-2 text-center">
+          <p className="text-sm text-black mt-2 text-center">
             Upload your photo and click download to get your custom invitation
           </p>
         </div>
