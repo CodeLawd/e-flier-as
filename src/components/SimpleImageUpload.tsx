@@ -426,9 +426,6 @@ const SimpleImageUpload = () => {
               )}
             </div>
           </div>
-          <p className="text-sm text-gray-500 text-black mt-2 text-center">
-            Upload your photo and click download to get your custom invitation
-          </p>
         </div>
       </div>
     </div>
