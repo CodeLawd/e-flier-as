@@ -1,8 +1,6 @@
 "use client";
 
-import { useState, useRef, type ChangeEvent } from "react";
-import * as htmlToImage from "html-to-image";
-import { saveAs } from "file-saver";
+import { useState, useRef, ChangeEvent, useEffect } from "react";
 import Image from "next/image";
 
 // You can adjust these settings to match your specific template design
@@ -20,31 +18,37 @@ const TEMPLATE_CONFIG = {
     borderColor: "white", // color of the border around the user image
     borderWidth: 2, // width of the border in pixels
   },
-
-  // Mobile optimization settings
-  mobileOptimization: {
-    maxWidth: 1200, // Maximum width for mobile devices in pixels
-    quality: 0.9, // Image quality (0-1)
-    format: "jpeg", // Output format (jpeg or png)
-    fileName: "personal-invitation", // Base filename without extension
-  },
 };
 
 const SimpleImageUpload = () => {
   const [userImage, setUserImage] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
   const inviteRef = useRef<HTMLDivElement>(null);
+  const downloadLinkRef = useRef<HTMLAnchorElement>(null);
+
+  // Detect iOS devices on component mount
+  useEffect(() => {
+    const checkIsIOS = () => {
+      const userAgent = window.navigator.userAgent.toLowerCase();
+      return /iphone|ipad|ipod/.test(userAgent);
+    };
+    setIsIOS(checkIsIOS());
+  }, []);
+
+  // Pre-render the template image when the component mounts
+  useEffect(() => {
+    const templateImg = document.createElement("img");
+    templateImg.crossOrigin = "anonymous";
+    templateImg.src = TEMPLATE_CONFIG.templateImagePath;
+    templateImg.onload = () => {
+      // The template is loaded and ready
+    };
+  }, []);
 
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    // Check file size - limit to 5MB as mentioned in UI
-    const maxSizeInBytes = 5 * 1024 * 1024; // 5MB
-    if (file.size > maxSizeInBytes) {
-      alert("File is too large. Please select an image under 5MB.");
-      return;
-    }
 
     const reader = new FileReader();
     reader.onload = () => {
@@ -53,112 +57,244 @@ const SimpleImageUpload = () => {
     reader.readAsDataURL(file);
   };
 
+  // Helper function to create a custom rendition of the invitation
+  const createCustomRendition = async (): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      try {
+        // Create a canvas element
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+
+        if (!ctx) {
+          reject(new Error("Could not get canvas context"));
+          return;
+        }
+
+        // Set canvas dimensions to match our invitation
+        canvas.width = 1000;
+        canvas.height = 1333; // 4:3 aspect ratio
+
+        // Load the template image
+        const templateImg = document.createElement("img");
+        templateImg.crossOrigin = "anonymous";
+        templateImg.src = TEMPLATE_CONFIG.templateImagePath;
+
+        templateImg.onload = () => {
+          // Draw template background
+          ctx.drawImage(templateImg, 0, 0, canvas.width, canvas.height);
+
+          // If user has uploaded an image, draw it in the correct position
+          if (userImage) {
+            const userImg = document.createElement("img");
+            userImg.crossOrigin = "anonymous";
+            userImg.src = userImage;
+
+            userImg.onload = () => {
+              // Calculate position and dimensions based on percentages
+              const top =
+                (parseFloat(TEMPLATE_CONFIG.userImagePosition.top) / 100) *
+                canvas.height;
+              const left =
+                (parseFloat(TEMPLATE_CONFIG.userImagePosition.left) / 100) *
+                canvas.width;
+              const width =
+                (parseFloat(TEMPLATE_CONFIG.userImagePosition.width) / 100) *
+                canvas.width;
+              const height =
+                (parseFloat(TEMPLATE_CONFIG.userImagePosition.height) / 100) *
+                canvas.height;
+
+              // Draw user image centered at the specified position
+              ctx.save();
+
+              // Create clipping region for the shape
+              ctx.beginPath();
+              const shape = TEMPLATE_CONFIG.userImagePosition.shape;
+              if (shape === "circle") {
+                const radius = Math.min(width, height) / 2;
+                ctx.arc(left, top, radius, 0, Math.PI * 2);
+              } else if (shape === "square" || shape === "rectangle") {
+                // Draw rounded rectangle
+                const cornerRadius = shape === "square" ? 10 : 5;
+                const x = left - width / 2;
+                const y = top - height / 2;
+
+                ctx.moveTo(x + cornerRadius, y);
+                ctx.lineTo(x + width - cornerRadius, y);
+                ctx.quadraticCurveTo(x + width, y, x + width, y + cornerRadius);
+                ctx.lineTo(x + width, y + height - cornerRadius);
+                ctx.quadraticCurveTo(
+                  x + width,
+                  y + height,
+                  x + width - cornerRadius,
+                  y + height
+                );
+                ctx.lineTo(x + cornerRadius, y + height);
+                ctx.quadraticCurveTo(
+                  x,
+                  y + height,
+                  x,
+                  y + height - cornerRadius
+                );
+                ctx.lineTo(x, y + cornerRadius);
+                ctx.quadraticCurveTo(x, y, x + cornerRadius, y);
+              }
+              ctx.closePath();
+              ctx.clip();
+
+              // Draw user image
+              ctx.drawImage(
+                userImg,
+                left - width / 2,
+                top - height / 2,
+                width,
+                height
+              );
+
+              // Add border if specified
+              if (TEMPLATE_CONFIG.userImagePosition.borderWidth > 0) {
+                ctx.strokeStyle = TEMPLATE_CONFIG.userImagePosition.borderColor;
+                ctx.lineWidth = TEMPLATE_CONFIG.userImagePosition.borderWidth;
+                if (shape === "circle") {
+                  const radius = Math.min(width, height) / 2;
+                  ctx.arc(left, top, radius, 0, Math.PI * 2);
+                } else {
+                  const x = left - width / 2;
+                  const y = top - height / 2;
+                  ctx.strokeRect(x, y, width, height);
+                }
+                ctx.stroke();
+              }
+
+              ctx.restore();
+
+              // Return the final data URL
+              const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+              resolve(dataUrl);
+            };
+
+            userImg.onerror = () => {
+              reject(new Error("Failed to load user image"));
+            };
+          } else {
+            // No user image, just return the template
+            const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+            resolve(dataUrl);
+          }
+        };
+
+        templateImg.onerror = () => {
+          reject(new Error("Failed to load template image"));
+        };
+      } catch (error) {
+        reject(error);
+      }
+    });
+  };
+
+  const attemptAutomaticDownload = (dataUrl: string, filename: string) => {
+    try {
+      // Create a temporary anchor element
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      link.download = filename;
+      link.style.display = "none";
+      document.body.appendChild(link);
+
+      // Attempt to trigger the download
+      link.click();
+
+      // Clean up
+      setTimeout(() => {
+        document.body.removeChild(link);
+      }, 100);
+
+      return true;
+    } catch (error) {
+      console.error("Error initiating download:", error);
+      return false;
+    }
+  };
+
   const downloadInvite = async () => {
-    if (!inviteRef.current) return;
+    if (!userImage) return;
 
     try {
       setIsDownloading(true);
 
-      // Get current date for unique filename
-      const date = new Date();
-      const dateString = `${date.getFullYear()}${(date.getMonth() + 1)
-        .toString()
-        .padStart(2, "0")}${date.getDate().toString().padStart(2, "0")}`;
-      const fileName = `${TEMPLATE_CONFIG.mobileOptimization.fileName}-${dateString}.${TEMPLATE_CONFIG.mobileOptimization.format}`;
+      // Generate a custom rendition of the invitation
+      const dataUrl = await createCustomRendition();
 
-      // Detect iOS devices - needs special handling
-      const isIOS =
-        /iPad|iPhone|iPod/.test(navigator.userAgent) && !("MSStream" in window);
-      const isSafari = /^((?!chrome|android).)*safari/i.test(
-        navigator.userAgent
-      );
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      // Try automatic download for all devices - don't store the result
+      attemptAutomaticDownload(dataUrl, "e-invite.jpeg");
 
-      // Special settings for iOS
-      const options = {
-        quality: isIOS ? 0.8 : TEMPLATE_CONFIG.mobileOptimization.quality, // Slightly lower quality for iOS to reduce memory usage
-        pixelRatio: isMobile ? (isIOS ? 1.5 : 2) : 1, // Lower pixelRatio for iOS to prevent memory issues
-        width: isMobile
-          ? Math.min(
-              window.innerWidth * (isIOS ? 1.5 : 2),
-              isIOS ? 1000 : TEMPLATE_CONFIG.mobileOptimization.maxWidth
-            )
-          : Math.min(
-              inviteRef.current.offsetWidth,
-              TEMPLATE_CONFIG.mobileOptimization.maxWidth
-            ),
-        style: {
-          background: "white",
-        },
-        // iOS Safari has issues with some advanced options, so keep it simple for iOS
-        skipAutoScale: isIOS,
-        canvasWidth: isIOS
-          ? Math.min(window.innerWidth * 1.5, 1000)
-          : undefined,
-      };
-
-      // Generate the image based on device type
-      let dataUrl;
-
-      // For iOS, use a different approach
+      // If on iOS, also show a modal with an explicit download button
       if (isIOS) {
-        try {
-          // iOS works better with PNG
-          dataUrl = await htmlToImage.toPng(inviteRef.current, options);
+        // Create a blob object from the data URL
+        const parts = dataUrl.split(",");
+        const mime = parts[0].match(/:(.*?);/)?.[1] || "image/jpeg";
+        const binaryString = atob(parts[1]);
+        const array = new Uint8Array(binaryString.length);
 
-          // Create a temporary link element
-          const link = document.createElement("a");
-          link.href = dataUrl;
-
-          // For iOS Safari, we need to use a different approach
-          if (isSafari) {
-            // Open image in new tab for Safari
-            link.target = "_blank";
-            link.rel = "noopener noreferrer";
-            alert(
-              "After clicking OK, your image will open in a new tab. Tap and hold the image, then select 'Add to Photos' to save it."
-            );
-            link.click();
-          } else {
-            // For iOS but non-Safari browsers
-            link.download = fileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-          }
-
-          setIsDownloading(false);
-          return;
-        } catch (iosError) {
-          console.error("iOS-specific error:", iosError);
-          // Fall back to regular method if iOS-specific approach fails
+        for (let i = 0; i < binaryString.length; i++) {
+          array[i] = binaryString.charCodeAt(i);
         }
-      }
 
-      // Standard approach for non-iOS devices
-      if (TEMPLATE_CONFIG.mobileOptimization.format === "png") {
-        dataUrl = await htmlToImage.toPng(inviteRef.current, options);
-      } else {
-        dataUrl = await htmlToImage.toJpeg(inviteRef.current, options);
-      }
+        const blob = new Blob([array], { type: mime });
+        const blobUrl = URL.createObjectURL(blob);
 
-      // For iOS devices that failed the iOS-specific approach
-      if (isIOS) {
-        const link = document.createElement("a");
-        link.href = dataUrl;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        alert(
-          "After clicking OK, your image will open in a new tab. Tap and hold the image, then select 'Add to Photos' to save it."
-        );
-        link.click();
-      } else {
-        // Save the file using file-saver for non-iOS devices
-        saveAs(dataUrl, fileName);
+        // Update download link with the blob URL
+        if (downloadLinkRef.current) {
+          downloadLinkRef.current.href = blobUrl;
+          downloadLinkRef.current.style.display = "block";
+        }
+
+        // Fallback for iOS: If automatic download seems to have failed, show a modal or dialog
+        const downloadModal = document.createElement("div");
+        downloadModal.style.position = "fixed";
+        downloadModal.style.top = "0";
+        downloadModal.style.left = "0";
+        downloadModal.style.width = "100%";
+        downloadModal.style.height = "100%";
+        downloadModal.style.backgroundColor = "rgba(0,0,0,0.75)";
+        downloadModal.style.display = "flex";
+        downloadModal.style.flexDirection = "column";
+        downloadModal.style.alignItems = "center";
+        downloadModal.style.justifyContent = "center";
+        downloadModal.style.zIndex = "9999";
+        downloadModal.style.fontFamily =
+          "-apple-system, BlinkMacSystemFont, sans-serif";
+
+        // Create the modal content
+        downloadModal.innerHTML = `
+          <div style="background: white; max-width: 90%; width: 350px; padding: 20px; border-radius: 12px; text-align: center;">
+            <h3 style="margin-top: 0; font-size: 18px; color: #333;">Your invitation is ready!</h3>
+            <img src="${dataUrl}" alt="Your invitation" style="max-width: 100%; border-radius: 8px; margin: 15px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" />
+            <p style="font-size: 14px; color: #666; margin-bottom: 20px;">
+              Tap the button below to save your invitation to your device.
+            </p>
+            <a href="${blobUrl}" download="e-invite.jpeg" style="display: block; background: #0066ff; color: white; padding: 12px 0; border-radius: 8px; text-decoration: none; font-weight: 500; font-size: 16px;">
+              Download Invitation
+            </a>
+            <button style="background: none; border: none; margin-top: 15px; color: #666; font-size: 14px;" onclick="this.parentNode.parentNode.remove()">
+              Close
+            </button>
+          </div>
+        `;
+
+        // Add click event to close when clicking outside the modal
+        downloadModal.addEventListener("click", (e) => {
+          if (e.target === downloadModal) {
+            downloadModal.remove();
+          }
+        });
+
+        // Add the modal to the body
+        document.body.appendChild(downloadModal);
       }
     } catch (error) {
       console.error("Error generating invite:", error);
-      alert("There was a problem creating your invitation. Please try again.");
+      alert("There was an error generating your invitation. Please try again.");
     } finally {
       setIsDownloading(false);
     }
@@ -229,6 +365,16 @@ const SimpleImageUpload = () => {
           >
             {isDownloading ? "Generating..." : "Download Your Invite"}
           </button>
+
+          {/* Hidden download link for fallback */}
+          <a
+            ref={downloadLinkRef}
+            download="e-invite.jpeg"
+            className="hidden"
+            style={{ display: "none" }}
+          >
+            Download again
+          </a>
         </div>
 
         <div className="w-full md:w-2/3 text-black">
@@ -239,11 +385,13 @@ const SimpleImageUpload = () => {
           >
             {/* Template Background - Using the default template image */}
             <Image
-              src={TEMPLATE_CONFIG.templateImagePath || "/placeholder.svg"}
+              src={TEMPLATE_CONFIG.templateImagePath}
               alt="Template"
               className="absolute inset-0 w-full h-full object-cover"
               width={1000}
-              height={1000}
+              height={1333}
+              priority
+              unoptimized
             />
 
             {/* User Image */}
@@ -262,11 +410,12 @@ const SimpleImageUpload = () => {
             >
               {userImage ? (
                 <Image
-                  src={userImage || "/placeholder.svg"}
+                  src={userImage}
                   alt="User"
                   className="w-full h-full object-cover"
-                  width={1000}
-                  height={1000}
+                  width={500}
+                  height={500}
+                  unoptimized
                 />
               ) : (
                 <div className="w-full h-full bg-white/30 flex items-center justify-center">
@@ -277,7 +426,7 @@ const SimpleImageUpload = () => {
               )}
             </div>
           </div>
-          <p className="text-sm text-black mt-2 text-center">
+          <p className="text-sm text-gray-500 text-black mt-2 text-center">
             Upload your photo and click download to get your custom invitation
           </p>
         </div>

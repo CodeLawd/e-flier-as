@@ -1,3 +1,4 @@
+// import SimpleImageUpload2 from "@/components/SimpleImageUpload2";
 import SimpleImageUpload from "../components/SimpleImageUpload";
 
 export default function Home() {
