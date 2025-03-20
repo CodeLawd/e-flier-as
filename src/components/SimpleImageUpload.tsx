@@ -10,10 +10,10 @@ const TEMPLATE_CONFIG = {
 
   // Position and size of the user's image on the template
   userImagePosition: {
-    top: "39%", // vertical position from the top (as percentage)
+    top: "36.4%", // vertical position from the top (as percentage)
     left: "50%", // horizontal position from the left (as percentage)
     width: "54%", // width of the user image (as percentage)
-    height: "39.3%", // height of the user image (as percentage)
+    height: "40%", // height of the user image (as percentage)
     shape: "square", // 'circle', 'square', or 'rectangle'
     borderColor: "white", // color of the border around the user image
     borderWidth: 2, // width of the border in pixels
@@ -104,6 +104,27 @@ const SimpleImageUpload = () => {
                 (parseFloat(TEMPLATE_CONFIG.userImagePosition.height) / 100) *
                 canvas.height;
 
+              // Calculate dimensions that preserve aspect ratio
+              const originalRatio = userImg.width / userImg.height;
+              const containerRatio = width / height;
+
+              let drawWidth,
+                drawHeight,
+                offsetX = 0,
+                offsetY = 0;
+
+              if (originalRatio > containerRatio) {
+                // Image is wider than container - fit to height
+                drawHeight = height;
+                drawWidth = height * originalRatio;
+                offsetX = (width - drawWidth) / 2;
+              } else {
+                // Image is taller than container - fit to width
+                drawWidth = width;
+                drawHeight = width / originalRatio;
+                offsetY = (height - drawHeight) / 2;
+              }
+
               // Draw user image centered at the specified position
               ctx.save();
 
@@ -142,13 +163,13 @@ const SimpleImageUpload = () => {
               ctx.closePath();
               ctx.clip();
 
-              // Draw user image
+              // Draw user image with preserved aspect ratio
               ctx.drawImage(
                 userImg,
-                left - width / 2,
-                top - height / 2,
-                width,
-                height
+                left - width / 2 + offsetX,
+                top - height / 2 + offsetY,
+                drawWidth,
+                drawHeight
               );
 
               // Add border if specified
